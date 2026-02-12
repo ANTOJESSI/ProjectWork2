@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+
+# Virtual environment
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Models
+models/
+*.pkl
+*.joblib
+
+# Data (optional if large)
+data/raw/
+
+# Outputs
+output/
+
+# OS files
+.DS_Store
+Thumbs.db
