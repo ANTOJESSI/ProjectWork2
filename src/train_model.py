@@ -32,3 +32,18 @@ print(f"Model Training Complete. Mean Absolute Error: {error:.4f}")
 # Save the trained model
 joblib.dump(model, 'output/rail_stress_model.pkl')
 print("Model saved to output/rail_stress_model.pkl")
+
+
+
+# pandas Load CSV data
+# xgboost	ML algorithm
+# train_test_split	Split data
+# mean_absolute_error	Measure error
+# joblib	Save trained model
+
+# temp_c, humidity, solarradiation, track_age, tmsi
+
+# X_train, X_test, y_train, y_test They are created by scikit-learn, not by XGBoost.
+# YOU create them manually using:
+# train_test_split()
+# TMSI = risk score   TMSI is a normalized buckling risk index (0–1) derived from thermal stress and track condition.
