@@ -1,85 +1,117 @@
-import streamlit as st
-import folium
-from streamlit_folium import st_folium
-import joblib
 import pandas as pd
+import numpy as np
+import folium
 
-# 1. Page Configuration
-st.set_page_config(page_title="RailSafe AI Dashboard", layout="wide")
+# -----------------------------
+# CONFIGURATION
+# -----------------------------
+DEMO_MODE = True      # ← SET TO False only after everything works
+API_CALL_LIMIT = 50   # safety limit if API is ON
 
-st.title("🚆 AI-Driven Railway Track Buckling Prediction")
-st.markdown("### Real-time Risk Monitoring: Chennai Suburban Line")
+# -----------------------------
+# Load station data
+# -----------------------------
+df = pd.read_csv("data/stations_data.csv")
 
-# 2. Load Model
-@st.cache_resource
-def load_model():
-    return joblib.load('output/rail_stress_model.pkl')
+df = df.dropna(subset=["lat", "lng"])
 
-model = load_model()
+# Synthetic track age (realistic)
+df["track_age"] = np.random.randint(8, 35, size=len(df))
 
-# 3. Sidebar for Live Simulation
-st.sidebar.header("Simulate Environment")
-ambient_temp = st.sidebar.slider("Ambient Temperature (°C)", 20, 50, 38)
-humidity = st.sidebar.slider("Humidity (%)", 10, 90, 60)
-solar = st.sidebar.slider("Solar Radiation (W/m²)", 0, 1000, 800)
+# -----------------------------
+# Risk calculation
+# -----------------------------
+def calculate_risk(temp, humidity, solar, track_age):
 
-# 4. Locations and Live Prediction Logic
-locations = [
-    {"name": "Chennai Beach", "lat": 13.0913, "lon": 80.2837, "age": 35},
-    {"name": "Chennai Egmore", "lat": 13.0822, "lon": 80.2599, "age": 10},
-    {"name": "Mambalam", "lat": 13.0383, "lon": 80.2337, "age": 40},
-    {"name": "Guindy", "lat": 13.0067, "lon": 80.2206, "age": 25},
-    {"name": "Tambaram", "lat": 12.9229, "lon": 80.1273, "age": 5},
-]
+    temp_score = min(temp / 60, 1)
+    humidity_score = min(humidity / 100, 1)
+    solar_score = min(solar / 1000, 1)
+    age_score = min(track_age / 40, 1)
 
-# 5. Create Dashboard Layout
-col1, col2 = st.columns([2, 1])
+    return round(
+        0.35 * temp_score +
+        0.25 * solar_score +
+        0.20 * age_score +
+        0.20 * humidity_score,
+        2
+    )
 
-with col1:
-    m = folium.Map(location=[13.04, 80.23], zoom_start=11, tiles="cartodbpositron")
-    
-    table_data = []
-    for loc in locations:
-        # Prepare data for AI model
-        input_data = pd.DataFrame({
-            'temp_c': [ambient_temp],
-            'humidity': [humidity],
-            'solarradiation': [solar],
-            'track_age': [loc['age']]
-        })
-        
-        risk_score = model.predict(input_data)[0]
-        
-        # Color Logic
-        if risk_score > 0.7:
-            color, status = 'red', "CRITICAL"
-        elif risk_score > 0.4:
-            color, status = 'orange', "WARNING"
+# -----------------------------
+# Create map
+# -----------------------------
+m = folium.Map(
+    location=[df["lat"].mean(), df["lng"].mean()],
+    zoom_start=7
+)
+
+# -----------------------------
+# Plot stations
+# -----------------------------
+for i, row in df.iterrows():
+
+    lat, lon = row["lat"], row["lng"]
+
+    # -----------------------------
+    # WEATHER (DEMO vs LIVE)
+    # -----------------------------
+    if DEMO_MODE:
+        # Simulated PEAK SUMMER NOON conditions
+        temp = np.random.uniform(42, 52)
+        humidity = np.random.uniform(40, 70)
+        solar = np.random.uniform(900, 1150)
+        weather_source = "Simulated Heatwave"
+
+    else:
+        if i >= API_CALL_LIMIT:
+            break  # prevent freezing
+
+        from weather_service import get_live_weather
+        weather = get_live_weather(lat, lon)
+
+        if weather:
+            temp = weather["temp"]
+            humidity = weather["humidity"]
+            solar = weather["solar"]
+            weather_source = "Live API"
         else:
-            color, status = 'green', "SAFE"
-            
-        folium.Marker(
-            location=[loc['lat'], loc['lon']],
-            popup=f"{loc['name']}: {status}",
-            icon=folium.Icon(color=color)
-        ).add_to(m)
-        
-        table_data.append({"Location": loc['name'], "Risk Index": round(risk_score, 2), "Status": status})
+            temp = 38
+            humidity = 60
+            solar = 800
+            weather_source = "Fallback"
 
-    # Display Map
-    st_folium(m, width=800, height=500)
+    track_age = row["track_age"]
 
-with col2:
-    st.write("### Risk Summary Table")
-    st.table(pd.DataFrame(table_data))
-    
-    # Simple KPI Metrics
-    st.metric("Max Risk Detected", f"{max([d['Risk Index'] for d in table_data])}")
+    risk = calculate_risk(temp, humidity, solar, track_age)
 
+    if risk < 0.4:
+        color, label = "green", "LOW"
+    elif risk < 0.7:
+        color, label = "orange", "MEDIUM"
+    else:
+        color, label = "red", "HIGH"
 
+    popup = f"""
+    <b>{row['station_name']}</b><br>
+    Temp: {temp:.1f} °C<br>
+    Humidity: {humidity:.0f}%<br>
+    Solar: {solar:.0f} W/m²<br>
+    Track Age: {track_age} yrs<br>
+    Weather: {weather_source}<br>
+    <b>Risk: {label}</b>
+    """
 
+    folium.CircleMarker(
+        location=[lat, lon],
+        radius=6,
+        color=color,
+        fill=True,
+        fill_color=color,
+        fill_opacity=0.85,
+        popup=popup
+    ).add_to(m)
 
-
-    # Streamlit = web app framework
-# Turns Python into a dashboard
-# Folium = map library (Leaflet.js)
+# -----------------------------
+# Save output
+# -----------------------------
+m.save("rail_risk_map.html")
+print("✅ SUCCESS: rail_risk_map.html generated")
